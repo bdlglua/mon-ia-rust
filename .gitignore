@@ -2,3 +2,4 @@ target/
 historique.json
 documents/*
 !documents/.gitkeep
+sessions/
