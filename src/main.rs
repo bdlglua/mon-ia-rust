@@ -187,7 +187,6 @@ async fn delete_session(AxumPath(id): AxumPath<String>) -> Json<&'static str> {
     Json("OK")
 }
 
-/// Flux de conversation avec Mémoire Résumée, Vision conditionnelle et Cerveau
 async fn handle_chat_stream(
     State(state): State<Arc<AppState>>,
                             Json(payload): Json<ChatInput>,
@@ -197,6 +196,8 @@ async fn handle_chat_stream(
     .filter(|m| !m.trim().is_empty())
     .unwrap_or_else(|| DEFAULT_MODEL.to_string());
     let use_image = payload.use_image.unwrap_or(false);
+    let groq_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
+    let is_cloud = !groq_key.is_empty();
 
     let s = stream! {
         let mut session = load_session(&payload.session_id).unwrap_or_else(|| SessionData {
@@ -259,48 +260,72 @@ async fn handle_chat_stream(
             }
         }
         save_session(&session);
-
-        // 2. Routage Vision conditionnel (uniquement si l'utilisateur a coché "Inclure l'image")
+        // 2. Routage Vision conditionnel (Groq Vision sur le Cloud, LLaVA en local)
         if use_image {
             if let Some(img_b64) = get_uploaded_image_base64() {
-                yield Ok(Event::default().data(json!({ "type": "status", "text": "Analyse visuelle par LLaVA..." }).to_string()));
-                let vision_payload = json!({
-                    "model": "llava:7b",
-                    "messages": [{
-                        "role": "user",
-                        "content": format!("Décris précisément les éléments utiles pour répondre à : {}", payload.message),
-                                           "images": [img_b64]
-                    }],
-                    "stream": false
-                });
+                yield Ok(Event::default().data(json!({ "type": "status", "text": "Analyse visuelle de l'image..." }).to_string()));
 
-                let local_client = reqwest::Client::builder()
-                .no_proxy()
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new());
-
-                if let Ok(resp) = local_client
-                    .post("http://localhost:11434/api/chat")
-                    .json(&vision_payload)
-                    .send()
-                    .await
-                    {
-                        if let Ok(j) = resp.json::<Value>().await {
-                            if let Some(desc) = j["message"]["content"].as_str() {
-                                if let Some(last) = session.messages.last_mut() {
-                                    last.content = format!(
-                                        "[Observation visuelle (LLaVA) : {}]\n\nQuestion : {}",
-                                                           desc, payload.message
-                                    );
-                                }
-                                save_session(&session);
-                            }
+                let desc_opt = if is_cloud {
+                    let groq_vision_body = json!({
+                        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                { "type": "text", "text": format!("Décris précisément les éléments utiles pour répondre à : {}", payload.message) },
+                                                 { "type": "image_url", "image_url": { "url": format!("data:image/jpeg;base64,{}", img_b64) } }
+                            ]
+                        }]
+                    });
+                    if let Ok(resp) = state.http
+                        .post("https://groq.com")
+                        .header("Authorization", format!("Bearer {}", groq_key))
+                        .json(&groq_vision_body)
+                        .send()
+                        .await
+                        {
+                            resp.json::<Value>().await.ok().and_then(|j| {
+                                j["choices"][0]["message"]["content"].as_str().map(|s| s.to_string())
+                            })
+                        } else {
+                            None
                         }
+                } else {
+                    let vision_payload = json!({
+                        "model": "llava:7b",
+                        "messages": [{
+                            "role": "user",
+                            "content": format!("Décris précisément les éléments utiles pour répondre à : {}", payload.message),
+                                               "images": [img_b64]
+                        }],
+                        "stream": false
+                    });
+                    if let Ok(resp) = state.http
+                        .post("http://localhost:11434/api/chat")
+                        .json(&vision_payload)
+                        .send()
+                        .await
+                        {
+                            resp.json::<Value>().await.ok().and_then(|j| {
+                                j["message"]["content"].as_str().map(|s| s.to_string())
+                            })
+                        } else {
+                            None
+                        }
+                };
+
+                if let Some(desc) = desc_opt {
+                    if let Some(last) = session.messages.last_mut() {
+                        last.content = format!(
+                            "[Observation visuelle : {}]\n\nQuestion : {}",
+                            desc, payload.message
+                        );
                     }
+                    save_session(&session);
+                }
             }
         }
 
-        // 3. Boucle d'agent principale (Appel direct API Ollama + Outils)
+        // 3. Boucle d'agent principale (Groq Cloud ou Ollama Local + Outils)
         loop {
             let mut full_sys = state.system_prompt.clone();
             if !session.summary.is_empty() {
@@ -308,7 +333,7 @@ async fn handle_chat_stream(
                 full_sys.push_str(&session.summary);
             }
 
-            let mut ollama_messages = vec![json!({
+            let mut chat_messages = vec![json!({
                 "role": "system",
                 "content": full_sys
             })];
@@ -317,31 +342,50 @@ async fn handle_chat_stream(
                 if m.role == "upload" {
                     continue;
                 }
-                ollama_messages.push(json!({
+                chat_messages.push(json!({
                     "role": if m.role == "assistant" { "assistant" } else { "user" },
                     "content": m.content
                 }));
             }
 
-            let req_body = json!({
-                "model": selected_model,
-                "messages": ollama_messages,
-                "stream": true,
-                "keep_alive": "15m",
-                "options": {
-                    "num_ctx": 4096
-                }
-            });
+            let (api_url, model_name, auth_header) = if is_cloud {
+                (
+                    "https://groq.com",
+                 "llama-3.3-70b-versatile".to_string(),
+                 format!("Bearer {}", groq_key),
+                )
+            } else {
+                (
+                    "http://localhost:11434/api/chat",
+                 selected_model.clone(),
+                 String::new(),
+                )
+            };
+
+            let req_body = if is_cloud {
+                json!({
+                    "model": model_name,
+                    "messages": chat_messages,
+                    "stream": true
+                })
+            } else {
+                json!({
+                    "model": model_name,
+                    "messages": chat_messages,
+                    "stream": true,
+                    "keep_alive": "15m",
+                    "options": { "num_ctx": 4096 }
+                })
+            };
+
+            let mut req_builder = state.http.post(api_url).json(&req_body);
+            if !auth_header.is_empty() {
+                req_builder = req_builder.header("Authorization", auth_header);
+            }
 
             let mut full_response = String::new();
 
-            match state
-            .http
-            .post("http://localhost:11434/api/chat")
-            .json(&req_body)
-            .send()
-            .await
-            {
+            match req_builder.send().await {
                 Ok(resp) => {
                     let mut byte_stream = resp.bytes_stream();
                     let mut line_buf = String::new();
@@ -352,16 +396,19 @@ async fn handle_chat_stream(
                             while let Some(pos) = line_buf.find('\n') {
                                 let line = line_buf[..pos].trim().to_string();
                                 line_buf.drain(..=pos);
-                                if line.is_empty() {
+                                let clean_line = line.strip_prefix("data: ").unwrap_or(&line).trim();
+                                if clean_line.is_empty() || clean_line == "[DONE]" {
                                     continue;
                                 }
-                                if let Ok(parsed) = serde_json::from_str::<Value>(&line) {
-                                    if let Some(chunk) = parsed["message"]["content"].as_str() {
-                                        if !chunk.is_empty() {
-                                            full_response.push_str(chunk);
-                                            let data = json!({ "type": "chunk", "text": chunk }).to_string();
-                                            yield Ok(Event::default().data(data));
-                                        }
+                                if let Ok(parsed) = serde_json::from_str::<Value>(clean_line) {
+                                    let chunk = parsed["message"]["content"]
+                                    .as_str()
+                                    .or_else(|| parsed["choices"][0]["delta"]["content"].as_str())
+                                    .unwrap_or("");
+                                    if !chunk.is_empty() {
+                                        full_response.push_str(chunk);
+                                        let data = json!({ "type": "chunk", "text": chunk }).to_string();
+                                        yield Ok(Event::default().data(data));
                                     }
                                 }
                             }
@@ -369,7 +416,7 @@ async fn handle_chat_stream(
                     }
                 }
                 Err(e) => {
-                    let err_msg = format!("Erreur connexion Ollama ({}) : {}", selected_model, e);
+                    let err_msg = format!("Erreur connexion IA : {}", e);
                     yield Ok(Event::default().data(json!({ "type": "chunk", "text": err_msg }).to_string()));
                     break;
                 }
