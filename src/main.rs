@@ -413,6 +413,7 @@ async fn handle_chat_stream(
             yield Ok(Event::default().data(json!({ "type": "done", "title": session.title }).to_string()));
             break;
         }
+    };
 
     Sse::new(s)
 }
