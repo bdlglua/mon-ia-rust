@@ -10,8 +10,6 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::{stream::Stream, StreamExt};
-use genai::chat::{ChatMessage, ChatRequest, ChatStreamEvent};
-use genai::Client;
 use scraper::{Html as ScraperHtml, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -821,26 +819,6 @@ fn load_session(id: &str) -> Option<SessionData> {
     let path = Path::new(SESSIONS_DIR).join(format!("{}.json", safe));
     let data = fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
-}
-
-fn build_context_messages(system_prompt: &str, session: &SessionData) -> Vec<ChatMessage> {
-    let mut full_sys = system_prompt.to_string();
-    if !session.summary.is_empty() {
-        full_sys.push_str("\n\n[Mémoire à long terme — Résumé des échanges précédents] :\n");
-        full_sys.push_str(&session.summary);
-    }
-
-    let mut result = vec![ChatMessage::system(full_sys)];
-    for m in &session.messages {
-        if m.role == "upload" {
-            continue;
-        }
-        match m.role.as_str() {
-            "assistant" => result.push(ChatMessage::assistant(&m.content)),
-            _ => result.push(ChatMessage::user(&m.content)),
-        }
-    }
-    result
 }
 
 fn get_uploaded_image_base64() -> Option<String> {
