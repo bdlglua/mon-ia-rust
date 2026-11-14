@@ -89,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     3. Écrire un fichier : {"tool": "write_file", "arg": "nom_fichier.txt", "content": "texte à écrire"}
     4. Rechercher sur le web : {"tool": "web_search", "arg": "mots clés de recherche"}
     5. Lire une page web : {"tool": "read_url", "arg": "https://exemple.com"}
+    6. Exécuter un script Python pour calculer ou vérifier un résultat : {"tool": "run_python", "arg": "print(2 + 2)"}
 
     Si tu n'as pas besoin d'outil, écris ta réflexion entre <thought>...</thought> puis ta réponse finale claire en français (format Markdown)."#
     .to_string();
@@ -116,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .route("/api/chat", post(handle_chat_stream))
     .with_state(state);
 
-    let addr = "127.0.0.1:3000";
+    let addr = "0.0.0.0:3000";
     println!("Agent IA Rust complet prêt sur : http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -367,9 +368,46 @@ async fn execute_tool(state: &AppState, tool: &str, arg: &str, content: &str) ->
         }
         "web_search" => search_duckduckgo(arg).await,
         "read_url" => scrape_webpage(arg).await,
+        "run_python" => run_python_sandbox(arg),
         _ => "Outil inconnu.".to_string(),
     }
 }
+
+/// Exécute un script Python dans un environnement isolé avec limite de temps (5s)
+fn run_python_sandbox(code: &str) -> String {
+    let temp_script = "/tmp/bdl_sandbox.py";
+    if fs::write(temp_script, code).is_err() {
+        return "Erreur d'écriture du script temporaire.".to_string();
+    }
+
+    // Exécution limitée à 5 secondes via `timeout` et mode isolé `-I` de Python
+    let output = std::process::Command::new("timeout")
+    .args(["5s", "python3", "-I", temp_script])
+    .current_dir("/tmp")
+    .output();
+
+    let _ = fs::remove_file(temp_script);
+
+    match output {
+        Ok(res) => {
+            let stdout = String::from_utf8_lossy(&res.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&res.stderr).trim().to_string();
+            if res.status.success() {
+                if stdout.is_empty() {
+                    "Script exécuté avec succès (aucune sortie affichée, pensez à utiliser print()).".to_string()
+                } else {
+                    stdout
+                }
+            } else if res.status.code() == Some(124) {
+                "Erreur : Temps d'exécution dépassé (limite de 5 secondes).".to_string()
+            } else {
+                format!("Erreur Python :\n{}", stderr)
+            }
+        }
+        Err(e) => format!("Impossible de lancer Python : {}", e),
+    }
+}
+
 
 async fn get_embedding(text: &str) -> Vec<f32> {
     let client = reqwest::Client::builder()

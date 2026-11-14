@@ -64,6 +64,16 @@
   button.send { background: #38bdf8; color: #0f172a; border: none; padding: 0 1.4rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.95rem; }
   button.stop { background: #ef4444; color: white; border: none; padding: 0 1.4rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.95rem; display: none; }
   @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+
+  body.light { background: #f1f5f9; color: #0f172a; }
+  body.light aside { background: #e2e8f0; border-color: #cbd5e1; }
+  body.light .session-item { color: #334155; }
+  body.light .session-item:hover, body.light .session-item.active { background: #cbd5e1; color: #0284c7; }
+  body.light header, body.light form { background: #ffffff; border-color: #cbd5e1; }
+  body.light #docsBar { background: #f8fafc; border-color: #cbd5e1; }
+  body.light .assistant { background: #ffffff; border-color: #cbd5e1; color: #0f172a; }
+  body.light select, body.light button.secondary, body.light input[type="text"], body.light button.icon-btn { background: #f8fafc; color: #0f172a; border-color: #cbd5e1; }
+  body.light details.brain-box { background: #f8fafc; border-color: #cbd5e1; color: #475569; }
 </style>
 </head>
 <body>
@@ -78,6 +88,7 @@
     <h1>🦀 Agent IA Rust Studio</h1>
     <div class="controls">
       <select id="modelSelect" title="Choisir le modèle Ollama"></select>
+      <button id="themeBtn" class="secondary" onclick="toggleTheme()" title="Changer de thème">☀️</button>
       <button id="reloadBtn" class="secondary" onclick="reloadDocs()" title="Réindexer les documents">🔄 Docs</button>
     </div>
   </header>
@@ -489,6 +500,24 @@ form.onsubmit = async (e) => {
     abortController = null;
   }
 };
+
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle("light");
+  localStorage.setItem("bdl_theme", isLight ? "light" : "dark");
+  document.getElementById("themeBtn").textContent = isLight ? "🌙" : "☀️";
+}
+if (localStorage.getItem("bdl_theme") === "light") {
+  document.body.classList.add("light");
+  document.getElementById("themeBtn").textContent = "🌙";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") stopGeneration();
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && document.activeElement === input) {
+    form.requestSubmit();
+  }
+});
 
 loadModels();
 refreshDocsList();
