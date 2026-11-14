@@ -3,65 +3,209 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent IA Rust Local</title>
-<script src="/marked.min.js"></script>
+<title>Agent IA Rust Studio</title>
 <style>
-  body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-  header { background: #1e293b; padding: 0.9rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; gap: 1rem; }
-  header h1 { margin: 0; font-size: 1.15rem; color: #38bdf8; }
-  .controls { display: flex; align-items: center; gap: 0.7rem; }
-  select { background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; }
-  button.secondary { background: #334155; color: white; border: 1px solid #475569; padding: 0.45rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
-  button.clear { background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+
+  /* Barre latérale Sessions */
+  aside { width: 250px; background: #0b1120; border-right: 1px solid #1e293b; display: flex; flex-direction: column; padding: 1rem; gap: 0.8rem; }
+  .new-chat-btn { background: #2563eb; color: white; border: none; padding: 0.7rem; border-radius: 8px; font-weight: 600; cursor: pointer; text-align: left; }
+  .new-chat-btn:hover { background: #1d4ed8; }
+  #sessionsList { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; }
+  .session-item { padding: 0.6rem 0.8rem; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.88rem; color: #cbd5e1; }
+  .session-item:hover { background: #1e293b; }
+  .session-item.active { background: #1e293b; color: #38bdf8; font-weight: 600; border: 1px solid #334155; }
+  .session-del { background: none; border: none; color: #64748b; cursor: pointer; font-size: 1rem; padding: 0 0.2rem; }
+  .session-del:hover { color: #ef4444; }
+
+  /* Zone principale */
+  main { flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0; }
+  header { background: #1e293b; padding: 0.8rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
+  header h1 { margin: 0; font-size: 1.1rem; color: #38bdf8; }
+  .controls { display: flex; align-items: center; gap: 0.6rem; }
+  select, button.secondary { background: #0f172a; color: #f8fafc; border: 1px solid #475569; padding: 0.45rem 0.75rem; border-radius: 6px; font-size: 0.88rem; cursor: pointer; }
+
   #docsBar { background: #162032; padding: 0.5rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; border-bottom: 1px solid #334155; font-size: 0.85rem; }
   #docsBar:empty { display: none; }
-  .doc-pill { background: #1e293b; border: 1px solid #475569; padding: 0.25rem 0.6rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.5rem; color: #e2e8f0; }
-  .doc-pill button { background: none; border: none; color: #f87171; font-weight: bold; cursor: pointer; font-size: 1rem; padding: 0; line-height: 1; }
-  .doc-pill button:hover { color: #ef4444; }
-  #chat { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 900px; width: 100%; margin: 0 auto; box-sizing: border-box; }
-  .msg { padding: 0.9rem 1.2rem; border-radius: 10px; max-width: 85%; line-height: 1.6; overflow-wrap: break-word; }
+  .doc-pill { background: #1e293b; border: 1px solid #475569; padding: 0.25rem 0.6rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.5rem; }
+  .doc-pill button { background: none; border: none; color: #f87171; font-weight: bold; cursor: pointer; font-size: 1rem; padding: 0; }
+
+  #chat { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 900px; width: 100%; margin: 0 auto; }
+  .msg { padding: 0.9rem 1.2rem; border-radius: 10px; max-width: 85%; line-height: 1.6; overflow-wrap: break-word; position: relative; }
   .user { background: #2563eb; align-self: flex-end; white-space: pre-wrap; }
   .assistant { background: #1e293b; align-self: flex-start; border: 1px solid #334155; }
-  .assistant p:first-child { margin-top: 0; }
-  .assistant p:last-child { margin-bottom: 0; }
-  .assistant pre { background: #020617; padding: 0.9rem; border-radius: 8px; overflow-x: auto; border: 1px solid #334155; }
-  .assistant code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: rgba(15, 23, 42, 0.7); padding: 0.15rem 0.35rem; border-radius: 4px; }
-  .assistant pre code { background: transparent; padding: 0; }
+
+  /* Cerveau / Réflexion */
+  details.brain-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 0.4rem 0.7rem; margin-bottom: 0.7rem; font-size: 0.85rem; color: #94a3b8; }
+  details.brain-box summary { cursor: pointer; color: #a78bfa; font-weight: 600; user-select: none; }
+  .brain-content { margin-top: 0.4rem; font-style: italic; white-space: pre-wrap; }
+
+  /* Blocs de code + Bouton Copier */
+  .code-wrapper { position: relative; margin: 0.6rem 0; }
+  pre { background: #020617; padding: 2rem 0.9rem 0.9rem 0.9rem; border-radius: 8px; overflow-x: auto; border: 1px solid #334155; margin: 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: rgba(15, 23, 42, 0.7); padding: 0.15rem 0.35rem; border-radius: 4px; }
+  pre code { background: transparent; padding: 0; }
+  .copy-btn { position: absolute; top: 6px; right: 8px; background: #1e293b; color: #cbd5e1; border: 1px solid #475569; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.75rem; cursor: pointer; }
+  .copy-btn:hover { background: #334155; color: white; }
+
   .tool-badge { font-size: 0.8rem; color: #38bdf8; background: #0f172a; padding: 0.3rem 0.6rem; border-radius: 6px; margin-bottom: 0.6rem; display: inline-block; font-family: monospace; border: 1px solid #334155; }
-  form { background: #1e293b; padding: 1rem; display: flex; gap: 0.8rem; border-top: 1px solid #334155; }
-  .input-wrap { max-width: 900px; width: 100%; margin: 0 auto; display: flex; gap: 0.8rem; }
+  .speak-btn { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.95rem; margin-top: 0.5rem; padding: 0; display: inline-block; }
+  .speak-btn:hover { color: #38bdf8; }
+
+  /* Barre de saisie */
+  form { background: #1e293b; padding: 0.9rem 1.5rem; border-top: 1px solid #334155; }
+  .form-container { max-width: 900px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 0.5rem; }
+  #imageToggleBar { display: none; font-size: 0.85rem; color: #38bdf8; align-items: center; gap: 0.5rem; }
+  .input-wrap { display: flex; gap: 0.6rem; }
   input[type="text"] { flex: 1; padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 1rem; }
-  button.attach { background: #334155; color: white; border: 1px solid #475569; padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 1.2rem; }
-  button.send { background: #38bdf8; color: #0f172a; border: none; padding: 0 1.5rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1rem; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.icon-btn { background: #334155; color: white; border: 1px solid #475569; padding: 0 0.9rem; border-radius: 8px; cursor: pointer; font-size: 1.15rem; }
+  button.icon-btn.recording { background: #ef4444; border-color: #f87171; animation: pulse 1s infinite; }
+  button.send { background: #38bdf8; color: #0f172a; border: none; padding: 0 1.4rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.95rem; }
+  button.stop { background: #ef4444; color: white; border: none; padding: 0 1.4rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.95rem; display: none; }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>🦀 Agent IA Rust</h1>
-  <div class="controls">
-    <select id="modelSelect" title="Choisir le modèle Ollama"></select>
-    <button id="reloadBtn" class="secondary" onclick="reloadDocs()" title="Réindexer le dossier documents/">🔄 Docs</button>
-    <button class="clear" onclick="clearChat()">Effacer</button>
-  </div>
-</header>
-<div id="docsBar"></div>
-<div id="chat"></div>
-<form id="form">
-  <div class="input-wrap">
-    <input type="file" id="fileInput" style="display:none" multiple onchange="uploadFiles(this.files)" />
-    <button type="button" class="attach" onclick="document.getElementById('fileInput').click()" title="Déposer un fichier (PDF, texte, code...)">📎</button>
-    <input type="text" id="input" placeholder="Posez une question ou déposez un fichier avec 📎..." autocomplete="off" required />
-    <button type="submit" class="send" id="btn">Envoyer</button>
-  </div>
-</form>
+
+<aside>
+  <button class="new-chat-btn" onclick="startNewSession()">+ Nouvelle discussion</button>
+  <div id="sessionsList"></div>
+</aside>
+
+<main>
+  <header>
+    <h1>🦀 Agent IA Rust Studio</h1>
+    <div class="controls">
+      <select id="modelSelect" title="Choisir le modèle Ollama"></select>
+      <button id="reloadBtn" class="secondary" onclick="reloadDocs()" title="Réindexer les documents">🔄 Docs</button>
+    </div>
+  </header>
+  <div id="docsBar"></div>
+  <div id="chat"></div>
+  <form id="form">
+    <div class="form-container">
+      <div id="imageToggleBar">
+        <input type="checkbox" id="useImageCheck" />
+        <label for="useImageCheck">👁️ Inclure l'image active dans cette question (via LLaVA)</label>
+      </div>
+      <div class="input-wrap">
+        <input type="file" id="fileInput" style="display:none" multiple onchange="uploadFiles(this.files)" />
+        <button type="button" class="icon-btn" onclick="document.getElementById('fileInput').click()" title="Joindre un fichier">📎</button>
+        <button type="button" id="micBtn" class="icon-btn" onclick="toggleVoice()" title="Dicter au microphone">🎤</button>
+        <input type="text" id="input" placeholder="Posez une question, dictez au micro ou déposez un fichier..." autocomplete="off" required />
+        <button type="submit" class="send" id="sendBtn">Envoyer</button>
+        <button type="button" class="stop" id="stopBtn" onclick="stopGeneration()">⏹ Stop</button>
+      </div>
+    </div>
+  </form>
+</main>
+
 <script>
 const chat = document.getElementById('chat');
 const form = document.getElementById('form');
 const input = document.getElementById('input');
-const btn = document.getElementById('btn');
+const sendBtn = document.getElementById('sendBtn');
+const stopBtn = document.getElementById('stopBtn');
 const modelSelect = document.getElementById('modelSelect');
 const docsBar = document.getElementById('docsBar');
+const sessionsList = document.getElementById('sessionsList');
+const imageToggleBar = document.getElementById('imageToggleBar');
+const useImageCheck = document.getElementById('useImageCheck');
+
+let currentSessionId = null;
+let abortController = null;
+
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  const sessions = await res.json();
+  sessionsList.innerHTML = '';
+
+  if (sessions.length === 0) {
+    await startNewSession();
+    return;
+  }
+
+  if (!currentSessionId || !sessions.some(s => s.id === currentSessionId)) {
+    currentSessionId = sessions.id;
+  }
+
+  sessions.forEach(s => {
+    const item = document.createElement('div');
+    item.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = s.title;
+    titleSpan.style.overflow = 'hidden';
+    titleSpan.style.textOverflow = 'ellipsis';
+    titleSpan.style.whiteSpace = 'nowrap';
+    titleSpan.onclick = () => selectSession(s.id);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'session-del';
+    delBtn.textContent = '×';
+    delBtn.onclick = (e) => { e.stopPropagation(); removeSession(s.id); };
+
+    item.appendChild(titleSpan);
+    item.appendChild(delBtn);
+    sessionsList.appendChild(item);
+  });
+
+  await loadSessionMessages(currentSessionId);
+}
+
+async function startNewSession() {
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Nouvelle discussion' })
+  });
+  const sess = await res.json();
+  currentSessionId = sess.id;
+  await loadSessions();
+}
+
+async function selectSession(id) {
+  currentSessionId = id;
+  await loadSessions();
+}
+
+async function removeSession(id) {
+  await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (currentSessionId === id) currentSessionId = null;
+  await loadSessions();
+}
+
+async function loadSessionMessages(id) {
+  const res = await fetch('/api/sessions/' + encodeURIComponent(id));
+  if (!res.ok) return;
+  const sess = await res.json();
+  chat.innerHTML = '';
+
+  if (sess.summary) {
+    const sumNote = document.createElement('div');
+    sumNote.style.fontSize = '0.8rem';
+    sumNote.style.color = '#94a3b8';
+    sumNote.style.textAlign = 'center';
+    sumNote.textContent = '🧠 Mémoire compressée active pour cette conversation';
+    chat.appendChild(sumNote);
+  }
+
+  sess.messages.forEach(m => {
+    if (m.role === 'upload') {
+      try {
+        const info = JSON.parse(m.content);
+        renderUploadBubble(info.files, info.chunks);
+      } catch (e) {}
+      return;
+    }
+    const cleanCheck = m.content.replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
+    const isToolCall = m.role === 'assistant' && cleanCheck.startsWith('{') && cleanCheck.endsWith('}');
+    if (!m.content.startsWith("Résultat de l'outil") && !isToolCall) {
+      const bubble = createMessageBubble(m.role);
+      renderText(m.role, bubble.content, m.content);
+    }
+  });
+}
 
 async function loadModels() {
   try {
@@ -84,6 +228,8 @@ async function refreshDocsList() {
     const res = await fetch('/api/docs');
     const files = await res.json();
     docsBar.innerHTML = '';
+    let hasImage = false;
+
     if (files.length > 0) {
       const label = document.createElement('span');
       label.style.color = '#94a3b8';
@@ -91,6 +237,7 @@ async function refreshDocsList() {
       docsBar.appendChild(label);
 
       files.forEach(f => {
+        if (/\.(jpg|jpeg|png|webp|gif)$/i.test(f)) hasImage = true;
         const pill = document.createElement('span');
         pill.className = 'doc-pill';
         const nameSpan = document.createElement('span');
@@ -98,7 +245,6 @@ async function refreshDocsList() {
 
         const delBtn = document.createElement('button');
         delBtn.textContent = '×';
-        delBtn.title = 'Supprimer ' + f;
         delBtn.onclick = () => deleteDoc(f);
 
         pill.appendChild(nameSpan);
@@ -106,6 +252,9 @@ async function refreshDocsList() {
         docsBar.appendChild(pill);
       });
     }
+
+    imageToggleBar.style.display = hasImage ? 'flex' : 'none';
+    if (!hasImage) useImageCheck.checked = false;
   } catch (e) {}
 }
 
@@ -131,17 +280,15 @@ async function reloadDocs() {
 
 function renderUploadBubble(files, chunks) {
   const infoBubble = createMessageBubble('user');
-  infoBubble.content.textContent = `📎 Fichier(s) déposé(s) : ${files.join(', ')} (${chunks} segments indexés)`;
-
+  infoBubble.content.textContent = `📎 Fichier(s) déposé(s) : ${files.join(', ')} (${chunks} segments vectorisés)`;
   files.forEach(name => {
     if (/\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
       const img = document.createElement('img');
       img.src = '/docs/' + encodeURIComponent(name);
-      img.style.maxWidth = '280px';
+      img.style.maxWidth = '260px';
       img.style.borderRadius = '8px';
       img.style.marginTop = '0.6rem';
       img.style.display = 'block';
-      // Masque l'image proprement si le fichier a été supprimé via la croix ×
       img.onerror = () => { img.style.display = 'none'; };
       infoBubble.content.appendChild(img);
     }
@@ -151,33 +298,21 @@ function renderUploadBubble(files, chunks) {
 async function uploadFiles(files) {
   if (!files || !files.length) return;
   const formData = new FormData();
+  formData.append('session_id', currentSessionId);
   for (const file of files) {
     formData.append('file', file);
   }
 
-  const infoBubble = createMessageBubble('user');
-  infoBubble.content.textContent = '📤 Envoi et indexation en cours...';
-
   try {
     const res = await fetch('/api/upload', { method: 'POST', body: formData });
     const data = await res.json();
-    infoBubble.content.textContent = `📎 Fichier(s) déposé(s) : ${data.files.join(', ')} (${data.chunks} segments indexés)`;
-
-    data.files.forEach(name => {
-      if (/\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
-        const img = document.createElement('img');
-        img.src = '/docs/' + encodeURIComponent(name);
-        img.style.maxWidth = '280px';
-        img.style.borderRadius = '8px';
-        img.style.marginTop = '0.6rem';
-        img.style.display = 'block';
-        infoBubble.content.appendChild(img);
-      }
-    });
-
-    refreshDocsList();
+    renderUploadBubble(data.files, data.chunks);
+    await refreshDocsList();
+    if (data.files.some(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f))) {
+      useImageCheck.checked = true;
+    }
   } catch (err) {
-    infoBubble.content.textContent = '❌ Erreur lors du dépôt du fichier.';
+    alert('Erreur lors du dépôt du fichier.');
   } finally {
     document.getElementById('fileInput').value = '';
   }
@@ -186,10 +321,72 @@ async function uploadFiles(files) {
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => {
   e.preventDefault();
-  if (e.dataTransfer.files.length) {
-    uploadFiles(e.dataTransfer.files);
-  }
+  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
 });
+
+function toggleVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("La dictée vocale n'est pas supportée par ce navigateur.");
+    return;
+  }
+  const micBtn = document.getElementById('micBtn');
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'fr-FR';
+  recognition.start();
+  micBtn.classList.add('recording');
+
+  recognition.onresult = (event) => {
+    input.value = event.results.transcript;
+  };
+  recognition.onend = () => micBtn.classList.remove('recording');
+  recognition.onerror = () => micBtn.classList.remove('recording');
+}
+
+function speakText(text) {
+  window.speechSynthesis.cancel();
+  const clean = text.replace(/<thought>[\s\S]*?<\/thought>/g, '').replace(/[*#`]/g, '');
+  const utterance = new SpeechSynthesisUtterance(clean);
+  utterance.lang = 'fr-FR';
+  window.speechSynthesis.speak(utterance);
+}
+
+function formatRichText(raw) {
+  let brainHtml = '';
+  let bodyText = raw;
+
+  const thoughtMatch = raw.match(/<thought>([\s\S]*?)(?:<\/thought>|$)/);
+  if (thoughtMatch) {
+    const thoughtContent = thoughtMatch.trim()
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    brainHtml = '<details class="brain-box"><summary>🧠 Réflexion de l\'IA</summary><div class="brain-content">' + thoughtContent + '</div></details>';
+    bodyText = raw.replace(/<thought>[\s\S]*?(?:<\/thought>|$)/, '').trim();
+  }
+
+  if (bodyText.startsWith('{')) {
+    return brainHtml + "<em>Exécution d'une action en cours...</em>";
+  }
+
+  let formatted = bodyText
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/```([\s\(\S\)]*?)```/g, (_, code) => {
+      return '<div class="code-wrapper"><button type="button" class="copy-btn" onclick="copyCode(this)">Copier</button><pre><code>' + code.trim() + '</code></pre></div>';
+    })
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+
+  return brainHtml + formatted;
+}
+
+function copyCode(btn) {
+  const codeText = btn.nextElementSibling.innerText;
+  navigator.clipboard.writeText(codeText);
+  btn.textContent = '✅ Copié';
+  setTimeout(() => { btn.textContent = 'Copier'; }, 2000);
+}
 
 function createMessageBubble(role) {
   const div = document.createElement('div');
@@ -203,40 +400,24 @@ function createMessageBubble(role) {
 
 function renderText(role, element, text) {
   if (role === 'assistant') {
-    if (text.trim().startsWith('{')) {
-      element.innerHTML = '<em>Analyse de l\'action en cours...</em>';
-    } else {
-      element.innerHTML = (typeof marked !== 'undefined') ? marked.parse(text) : text;
-    }
+    element.innerHTML = formatRichText(text);
+    const speakBtn = document.createElement('button');
+    speakBtn.type = 'button';
+    speakBtn.className = 'speak-btn';
+    speakBtn.textContent = '🔊 Écouter';
+    speakBtn.onclick = () => speakText(text);
+    element.appendChild(speakBtn);
   } else {
-    element.textContent = text;
+element.textContent = text;
   }
   chat.scrollTop = chat.scrollHeight;
 }
 
-async function loadHistory() {
-  const res = await fetch('/api/history');
-  const data = await res.json();
-  chat.innerHTML = '';
-  data.forEach(m => {
-    if (m.role === 'upload') {
-      try {
-        const info = JSON.parse(m.content);
-        renderUploadBubble(info.files, info.chunks);
-      } catch (e) {}
-      return;
-    }
-    const isToolCall = m.role === 'assistant' && m.content.trim().startsWith('{') && m.content.trim().endsWith('}');
-    if (m.role !== 'system' && !m.content.startsWith("Résultat de l'outil") && !isToolCall) {
-      const { content } = createMessageBubble(m.role);
-      renderText(m.role, content, m.content);
-    }
-  });
-}
-
-async function clearChat() {
-  await fetch('/api/clear', { method: 'POST' });
-  chat.innerHTML = '';
+function stopGeneration() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
 }
 
 form.onsubmit = async (e) => {
@@ -244,63 +425,71 @@ form.onsubmit = async (e) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-
+  const includeImage = useImageCheck.checked;
+  if (includeImage) useImageCheck.checked = false;
   const userBubble = createMessageBubble('user');
   renderText('user', userBubble.content, text);
-
-  btn.disabled = true;
-  btn.textContent = 'Génération...';
-
+  sendBtn.style.display = 'none';
+  stopBtn.style.display = 'inline-block';
   const aiBubble = createMessageBubble('assistant');
   let rawText = '';
-
+  abortController = new AbortController();
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, model: modelSelect.value })
+      signal: abortController.signal,
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        message: text,
+        model: modelSelect.value,
+        use_image: includeImage
+      })
     });
-
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-
       const lines = buffer.split('\n');
       buffer = lines.pop();
-
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const payload = JSON.parse(line.slice(6));
-          if (payload.type === 'chunk') {
+          if (payload.type === 'status') {
+            aiBubble.content.innerHTML = '⏳ ' + payload.text + '';
+          } else if (payload.type === 'chunk') {
             rawText += payload.text;
-            renderText('assistant', aiBubble.content, rawText);
+            aiBubble.content.innerHTML = formatRichText(rawText);
+            chat.scrollTop = chat.scrollHeight;
           } else if (payload.type === 'tool') {
             const badge = document.createElement('div');
             badge.className = 'tool-badge';
-            badge.textContent = '⚙️ Outil déclenché : ' + payload.name;
+            badge.textContent = '⚙️ Outil : ' + payload.name;
             aiBubble.div.insertBefore(badge, aiBubble.content);
             rawText = '';
-            aiBubble.content.innerHTML = '<em>Lecture du résultat...</em>';
+          } else if (payload.type === 'done') {
+            renderText('assistant', aiBubble.content, rawText);
+            loadSessions();
           }
         }
       }
     }
   } catch (err) {
-    aiBubble.content.textContent = 'Erreur de connexion au serveur Rust.';
+    if (err.name === 'AbortError') {
+      aiBubble.content.innerHTML = formatRichText(rawText) + '<br>⏹ Génération interrompue.';
+    } else {
+      aiBubble.content.textContent = 'Erreur de connexion au serveur Rust.';
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Envoyer';
+    sendBtn.style.display = 'inline-block';
+    stopBtn.style.display = 'none';
+    abortController = null;
   }
 };
 
 loadModels();
 refreshDocsList();
-loadHistory();
-</script>
-</body>
-</html>
+loadSessions();
