@@ -120,7 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .route("/api/chat", post(handle_chat_stream))
     .with_state(state);
 
-    let addr = "0.0.0.0:3000";
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("0.0.0.0:{}", port);
     println!("Agent IA Rust complet prêt sur : http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
