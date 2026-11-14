@@ -70,7 +70,7 @@ struct DocChunk {
 }
 
 struct AppState {
-    client: Client,
+    http: reqwest::Client,
     system_prompt: String,
     rag_index: Mutex<Vec<DocChunk>>,
 }
@@ -97,10 +97,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rag_index = build_rag_index(DOCS_DIR).await;
     println!("[RAG] {} segments vectorisés prêts.", rag_index.len());
 
+
+    let http = reqwest::Client::builder()
+    .no_proxy()
+    .pool_max_idle_per_host(10)
+    .build()?;
+
     let state = Arc::new(AppState {
-        client: Client::default(),
-                         system_prompt,
-                         rag_index: Mutex::new(rag_index),
+        http,
+        system_prompt,
+        rag_index: Mutex::new(rag_index),
     });
 
     let app = Router::new()
@@ -233,12 +239,24 @@ async fn handle_chat_stream(
                     "Résume de façon très concise en français les faits clés de cet historique en les fusionnant avec le résumé précédent.\nRésumé précédent : {}\nNouveaux échanges à intégrer :\n{}",
                     session.summary, old_text
                 );
-                let req = ChatRequest::new(vec![ChatMessage::user(sum_prompt)]);
-                if let Ok(res) = state.client.exec_chat(&selected_model, req, None).await {
-                    if let Some(new_sum) = res.content_text_as_str() {
-                        session.summary = new_sum.to_string();
+                let sum_body = json!({
+                    "model": selected_model,
+                    "messages": [{ "role": "user", "content": sum_prompt }],
+                    "stream": false
+                });
+                if let Ok(resp) = state
+                    .http
+                    .post("http://localhost:11434/api/chat")
+                    .json(&sum_body)
+                    .send()
+                    .await
+                    {
+                        if let Ok(j) = resp.json::<Value>().await {
+                            if let Some(new_sum) = j["message"]["content"].as_str() {
+                                session.summary = new_sum.to_string();
+                            }
+                        }
                     }
-                }
             }
         }
         save_session(&session);
@@ -283,23 +301,76 @@ async fn handle_chat_stream(
             }
         }
 
+        // 3. Boucle d'agent principale (Appel direct API Ollama + Outils)
         loop {
-            let chat_messages = build_context_messages(&state.system_prompt, &session);
-            let chat_req = ChatRequest::new(chat_messages);
+            let mut full_sys = state.system_prompt.clone();
+            if !session.summary.is_empty() {
+                full_sys.push_str("\n\n[Mémoire à long terme] :\n");
+                full_sys.push_str(&session.summary);
+            }
+
+            let mut ollama_messages = vec![json!({
+                "role": "system",
+                "content": full_sys
+            })];
+
+            for m in &session.messages {
+                if m.role == "upload" {
+                    continue;
+                }
+                ollama_messages.push(json!({
+                    "role": if m.role == "assistant" { "assistant" } else { "user" },
+                    "content": m.content
+                }));
+            }
+
+            let req_body = json!({
+                "model": selected_model,
+                "messages": ollama_messages,
+                "stream": true,
+                "keep_alive": "15m",
+                "options": {
+                    "num_ctx": 4096
+                }
+            });
+
             let mut full_response = String::new();
 
-            match state.client.exec_chat_stream(&selected_model, chat_req, None).await {
-                Ok(mut chat_stream) => {
-                    while let Some(event) = chat_stream.stream.next().await {
-                        if let Ok(ChatStreamEvent::Chunk(chunk)) = event {
-                            full_response.push_str(&chunk.content);
-                            let data = json!({ "type": "chunk", "text": chunk.content }).to_string();
-                            yield Ok(Event::default().data(data));
+            match state
+            .http
+            .post("http://localhost:11434/api/chat")
+            .json(&req_body)
+            .send()
+            .await
+            {
+                Ok(resp) => {
+                    let mut byte_stream = resp.bytes_stream();
+                    let mut line_buf = String::new();
+
+                    while let Some(item) = byte_stream.next().await {
+                        if let Ok(bytes) = item {
+                            line_buf.push_str(&String::from_utf8_lossy(&bytes));
+                            while let Some(pos) = line_buf.find('\n') {
+                                let line = line_buf[..pos].trim().to_string();
+                                line_buf.drain(..=pos);
+                                if line.is_empty() {
+                                    continue;
+                                }
+                                if let Ok(parsed) = serde_json::from_str::<Value>(&line) {
+                                    if let Some(chunk) = parsed["message"]["content"].as_str() {
+                                        if !chunk.is_empty() {
+                                            full_response.push_str(chunk);
+                                            let data = json!({ "type": "chunk", "text": chunk }).to_string();
+                                            yield Ok(Event::default().data(data));
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 Err(e) => {
-                    let err_msg = format!("Erreur Ollama ({}) : {}", selected_model, e);
+                    let err_msg = format!("Erreur connexion Ollama ({}) : {}", selected_model, e);
                     yield Ok(Event::default().data(json!({ "type": "chunk", "text": err_msg }).to_string()));
                     break;
                 }
@@ -342,7 +413,6 @@ async fn handle_chat_stream(
             yield Ok(Event::default().data(json!({ "type": "done", "title": session.title }).to_string()));
             break;
         }
-    };
 
     Sse::new(s)
 }
