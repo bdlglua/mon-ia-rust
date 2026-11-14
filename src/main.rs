@@ -23,7 +23,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const DEFAULT_MODEL: &str = "llama3.2:3b";
+const DEFAULT_MODEL: &str = "bdl:latest";
 const EMBED_MODEL: &str = "nomic-embed-text";
 const SESSIONS_DIR: &str = "sessions";
 const DOCS_DIR: &str = "documents";
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = fs::create_dir_all(SESSIONS_DIR);
     let _ = fs::create_dir_all(DOCS_DIR);
 
-    let system_prompt = r#"Tu es un assistant IA doté d'un cerveau analytique en Rust.
+    let system_prompt = r#"Tu es BDL, un assistant IA personnel expert en Rust, en analyse documentaire et en raisonnement analytique.
     Avant de répondre ou d'utiliser un outil, réfléchis brièvement à voix haute entre les balises <thought> et </thought> pour planifier ta réponse.
 
     Tu as accès à 5 outils. Pour utiliser un outil, après ta réflexion </thought>, réponds UNIQUEMENT avec un objet JSON strict (sans texte autour, sans balises markdown) :
@@ -125,23 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Liste les modèles Ollama via la commande locale
 async fn list_ollama_models() -> Json<Vec<String>> {
-    let mut models = Vec::new();
-    if let Ok(output) = std::process::Command::new("ollama").arg("list").output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) {
-            if let Some(name) = line.split_whitespace().next() {
-                if !name.is_empty() && !name.contains("embed") {
-                    models.push(name.to_string());
-                }
-            }
-        }
-    }
-    if models.is_empty() {
-        models.push(DEFAULT_MODEL.to_string());
-    }
-    Json(models)
+    Json(vec![DEFAULT_MODEL.to_string()])
 }
 
 /// Gestion des sessions multiples
